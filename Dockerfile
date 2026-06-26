@@ -4,7 +4,8 @@ WORKDIR /app
 # openssl é necessário para o Prisma gerar/usar o query engine
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
-RUN npm ci
+# Alinha o npm com a versão que gerou o package-lock (evita erro de "lock out of sync" no npm ci).
+RUN npm install -g npm@11 && npm ci
 COPY . .
 RUN npx prisma generate && npm run build
 
