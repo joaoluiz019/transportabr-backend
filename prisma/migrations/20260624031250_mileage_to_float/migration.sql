@@ -1,0 +1,9 @@
+-- AlterTable
+ALTER TABLE "expenses" ALTER COLUMN "mileage_at_service" SET DATA TYPE DOUBLE PRECISION,
+ALTER COLUMN "next_service_mileage" SET DATA TYPE DOUBLE PRECISION;
+
+-- AlterTable
+ALTER TABLE "fuelings" ALTER COLUMN "mileage" SET DATA TYPE DOUBLE PRECISION;
+
+-- AlterTable
+ALTER TABLE "vehicles" ALTER COLUMN "mileage" SET DATA TYPE DOUBLE PRECISION;

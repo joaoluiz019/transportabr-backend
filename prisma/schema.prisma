@@ -1,0 +1,287 @@
+// Modelagem do banco PostgreSQL do TransportaBR.
+// Migrado do Base44 (MongoDB). Todas as PKs e FKs são UUID.
+// Os nomes de tabelas/colunas estão em snake_case para casar com o frontend e os CSVs exportados.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  admin
+  driver
+}
+
+enum DriverStatus {
+  active
+  inactive
+}
+
+enum VehicleStatus {
+  active
+  maintenance
+  inactive
+}
+
+enum ExpenseType {
+  maintenance
+  oil_change
+  tire
+  insurance
+  tax
+  fine
+  payroll
+  commission
+  travel_bonus
+  overnight
+  toll
+  bonus
+  body
+  financiamento
+  other
+}
+
+enum FuelType {
+  gasoline
+  ethanol
+  diesel
+  gnv
+}
+
+// ---------------------------------------------------------------------------
+// User — autenticação (Google, Apple, email/senha). role admin/driver.
+// Os ponteiros opcionais (company_id/driver_id/vehicle_id) preservam o
+// updateMe() do fluxo de convite de motorista (DriverInviteAccept.jsx).
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String   @id @default(uuid()) @db.Uuid
+  email         String   @unique
+  name          String?
+  password_hash String?
+  role          UserRole @default(admin)
+  provider      String? // "local" | "google" | "apple"
+  provider_id   String?
+  company_id    String?  @db.Uuid
+  driver_id     String?  @db.Uuid
+  vehicle_id    String?  @db.Uuid
+  // Redefinição de senha (inclui o "defina sua senha" dos usuários migrados)
+  reset_token_hash    String?
+  reset_token_expires DateTime?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  @@unique([provider, provider_id])
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Company — tenant raiz. Dono identificado por owner_email.
+// ---------------------------------------------------------------------------
+
+model Company {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  cnpj        String
+  address     String?
+  phone       String?
+  owner_email String
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  drivers        Driver[]
+  vehicles       Vehicle[]
+  advances       Advance[]
+  billings       Billing[]
+  expenses       Expense[]
+  fuelings       Fueling[]
+  driver_invites DriverInvite[]
+
+  @@index([owner_email])
+  @@map("companies")
+}
+
+// ---------------------------------------------------------------------------
+// Driver e Vehicle têm relação bidirecional (driver.vehicle_id e
+// vehicle.driver_id), modelada como duas relações nomeadas distintas.
+// ---------------------------------------------------------------------------
+
+model Driver {
+  id                   String       @id @default(uuid()) @db.Uuid
+  company_id           String       @db.Uuid
+  name                 String
+  email                String?
+  phone                String?
+  cnh                  String?
+  cnh_expiry           DateTime?    @db.Date
+  toxicological_expiry DateTime?    @db.Date
+  commission_percent   Float?
+  vehicle_id           String?      @db.Uuid
+  status               DriverStatus @default(active)
+  created_at           DateTime     @default(now())
+  updated_at           DateTime     @updatedAt
+
+  company           Company        @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  vehicle           Vehicle?       @relation("DriverToVehicle", fields: [vehicle_id], references: [id], onDelete: SetNull)
+  assigned_vehicles Vehicle[]      @relation("VehicleToDriver")
+  advances          Advance[]
+  driver_invites    DriverInvite[]
+
+  @@index([company_id])
+  @@index([email])
+  @@map("drivers")
+}
+
+model Vehicle {
+  id                   String        @id @default(uuid()) @db.Uuid
+  company_id           String        @db.Uuid
+  plate                String
+  model                String
+  year                 Int?
+  brand                String
+  mileage              Float?
+  driver_id            String?       @db.Uuid
+  driver_name          String?
+  status               VehicleStatus @default(active)
+  registration_expiry  DateTime?     @db.Date
+  desired_km_per_liter Float?
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+
+  company          Company        @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  driver           Driver?        @relation("VehicleToDriver", fields: [driver_id], references: [id], onDelete: SetNull)
+  assigned_drivers Driver[]       @relation("DriverToVehicle")
+  billings         Billing[]
+  expenses         Expense[]
+  fuelings         Fueling[]
+  driver_invites   DriverInvite[]
+
+  @@index([company_id])
+  @@map("vehicles")
+}
+
+// ---------------------------------------------------------------------------
+// Transações (escopadas por company_id)
+// ---------------------------------------------------------------------------
+
+model Advance {
+  id          String   @id @default(uuid()) @db.Uuid
+  company_id  String   @db.Uuid
+  driver_id   String   @db.Uuid
+  driver_name String?
+  amount      Float
+  date        DateTime @db.Date
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  company Company @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  driver  Driver  @relation(fields: [driver_id], references: [id], onDelete: Cascade)
+
+  @@index([company_id])
+  @@index([driver_id])
+  @@map("advances")
+}
+
+model Billing {
+  id            String   @id @default(uuid()) @db.Uuid
+  company_id    String   @db.Uuid
+  vehicle_id    String   @db.Uuid
+  vehicle_plate String?
+  client_name   String
+  amount        Float
+  date          DateTime @db.Date
+  destination   String?
+  notes         String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  company Company @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  vehicle Vehicle @relation(fields: [vehicle_id], references: [id], onDelete: Cascade)
+
+  @@index([company_id])
+  @@index([vehicle_id])
+  @@index([date])
+  @@map("billings")
+}
+
+model Expense {
+  id                   String      @id @default(uuid()) @db.Uuid
+  company_id           String      @db.Uuid
+  vehicle_id           String      @db.Uuid
+  vehicle_plate        String?
+  type                 ExpenseType
+  amount               Float
+  date                 DateTime    @db.Date
+  supplier             String?
+  description          String?
+  mileage_at_service   Float?
+  next_service_mileage Float?
+  next_service_date    DateTime?   @db.Date
+  tire_brand           String?
+  tire_model           String?
+  tire_position        String?
+  created_at           DateTime    @default(now())
+  updated_at           DateTime    @updatedAt
+
+  company Company @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  vehicle Vehicle @relation(fields: [vehicle_id], references: [id], onDelete: Cascade)
+
+  @@index([company_id])
+  @@index([vehicle_id])
+  @@index([date])
+  @@map("expenses")
+}
+
+model Fueling {
+  id              String    @id @default(uuid()) @db.Uuid
+  company_id      String    @db.Uuid
+  vehicle_id      String    @db.Uuid
+  vehicle_plate   String?
+  date            DateTime  @db.Date
+  mileage         Float
+  liters          Float
+  price_per_liter Float
+  total_cost      Float
+  fuel_type       FuelType?
+  station         String?
+  km_per_liter    Float?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  company Company @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  vehicle Vehicle @relation(fields: [vehicle_id], references: [id], onDelete: Cascade)
+
+  @@index([company_id])
+  @@index([vehicle_id])
+  @@index([date])
+  @@map("fuelings")
+}
+
+model DriverInvite {
+  id         String   @id @default(uuid()) @db.Uuid
+  company_id String   @db.Uuid
+  driver_id  String   @db.Uuid
+  vehicle_id String?  @db.Uuid
+  token      String   @unique
+  store_url  String?
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  company Company  @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  driver  Driver   @relation(fields: [driver_id], references: [id], onDelete: Cascade)
+  vehicle Vehicle? @relation(fields: [vehicle_id], references: [id], onDelete: SetNull)
+
+  @@index([company_id])
+  @@index([driver_id])
+  @@map("driver_invites")
+}
