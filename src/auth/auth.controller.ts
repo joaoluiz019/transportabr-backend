@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Post } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from './tenant.service';
 import { AuthService } from './auth.service';
@@ -55,6 +55,28 @@ export class AuthController {
   @Post('apple')
   apple(@Body() dto: AppleLoginDto) {
     return this.auth.loginWithApple(dto.identityToken, dto.name);
+  }
+
+  /**
+   * Exclui a conta do usuário autenticado (disponível para todos: web e mobile).
+   * - Dono de empresa: remove a empresa (cascade apaga veículos, motoristas e lançamentos).
+   * - Motorista: remove o registro de motorista (cascade apaga seus adiantamentos/convites).
+   * - Sempre: remove o usuário (login). Operação atômica.
+   */
+  @Delete('account')
+  async deleteAccount(@CurrentUser() user: AuthUser) {
+    const company = await this.prisma.company.findFirst({
+      where: { owner_email: user.email },
+    });
+    const ops: any[] = [];
+    if (company) {
+      ops.push(this.prisma.company.delete({ where: { id: company.id } }));
+    } else {
+      ops.push(this.prisma.driver.deleteMany({ where: { email: user.email } }));
+    }
+    ops.push(this.prisma.user.delete({ where: { id: user.id } }));
+    await this.prisma.$transaction(ops);
+    return { ok: true };
   }
 
   /** Equivale a base44.auth.me() — usuário atual + empresa/motorista resolvidos. */

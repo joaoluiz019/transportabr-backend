@@ -14,8 +14,10 @@ import { FuelingModule } from './modules/fueling.module';
 import { DriverInviteModule } from './modules/driver-invite.module';
 import { UserModule } from './modules/user.module';
 import { ExportModule } from './modules/export.module';
+import { HealthController } from './health.controller';
 
 @Module({
+  controllers: [HealthController],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
