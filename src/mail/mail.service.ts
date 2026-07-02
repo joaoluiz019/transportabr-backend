@@ -1,47 +1,43 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 /**
- * Envio de e-mail. Usa SMTP quando SMTP_HOST está definido; caso contrário,
- * apenas registra o conteúdo no log (modo desenvolvimento). A escolha do
- * provedor transacional definitivo é tratada na Fase 5.
+ * Envio de e-mail via Resend. Usa o provedor quando RESEND_API_KEY está
+ * definido; caso contrário, apenas registra o conteúdo no log (modo
+ * desenvolvimento).
  */
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private readonly transporter: nodemailer.Transporter | null;
+  private readonly resend: Resend | null;
 
   constructor() {
-    if (process.env.SMTP_HOST) {
-      const port = Number(process.env.SMTP_PORT ?? 587);
-      this.transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port,
-        secure: port === 465,
-        auth: process.env.SMTP_USER
-          ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-          : undefined,
-      });
-    } else {
-      this.transporter = null;
-    }
+    this.resend = process.env.RESEND_API_KEY
+      ? new Resend(process.env.RESEND_API_KEY)
+      : null;
   }
 
   async send(to: string, subject: string, html: string, text?: string): Promise<void> {
-    const from = process.env.SMTP_FROM ?? 'TransportaBR <no-reply@transportabr.com>';
-    if (!this.transporter) {
+    const from = process.env.RESEND_FROM ?? 'TransportaBR <no-reply@transportabr.com.br>';
+    if (!this.resend) {
       this.logger.warn(
-        `SMTP não configurado — e-mail apenas registrado:\n  Para: ${to}\n  Assunto: ${subject}\n  ${text ?? html}`,
+        `RESEND_API_KEY não configurado — e-mail apenas registrado:\n  Para: ${to}\n  Assunto: ${subject}\n  ${text ?? html}`,
       );
       return;
     }
-    try {
-      await this.transporter.sendMail({ from, to, subject, html, text });
-      this.logger.log(`E-mail enviado para ${to}: ${subject}`);
-    } catch (e: any) {
-      // Não propaga: uma falha de SMTP não deve quebrar o fluxo (ex.: forgot-password).
-      this.logger.error(`Falha ao enviar e-mail para ${to}: ${e?.message ?? e}`);
+    const { data, error } = await this.resend.emails.send({
+      from,
+      to,
+      subject,
+      html,
+      ...(text ? { text } : {}),
+    });
+    if (error) {
+      // Não propaga: uma falha de envio não deve quebrar o fluxo (ex.: forgot-password).
+      this.logger.error(`Falha ao enviar e-mail para ${to}: ${error.message}`);
+      return;
     }
+    this.logger.log(`E-mail enviado para ${to} (id: ${data?.id}): ${subject}`);
   }
 
   async sendPasswordReset(

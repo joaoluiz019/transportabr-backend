@@ -10,7 +10,7 @@ npm run prisma:generate
 npm run start:dev        # API em http://localhost:3000
 ```
 Variáveis em `.env` (veja `.env.example`): `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`,
-`APPLE_CLIENT_ID`, `SMTP_*`, `APP_URL`.
+`APPLE_CLIENT_ID`, `RESEND_API_KEY`, `RESEND_FROM`, `APP_URL`.
 
 > Obs.: a máquina tem uma `DATABASE_URL` global no SO que conflita com o Prisma; os scripts npm já
 > usam `dotenv -e .env -o` (override) para priorizar o `.env` deste projeto.
